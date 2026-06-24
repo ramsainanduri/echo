@@ -202,14 +202,13 @@ class PanelOfNormalsBuilder:
 
     @staticmethod
     def _region_stats(matrix: pd.DataFrame) -> pd.DataFrame:
+        pon_sd = matrix.std(axis=0, ddof=1).replace(0.0, np.nan).fillna(0.05)
+        pon_sd = pon_sd.clip(lower=0.05)
         return pd.DataFrame(
             {
                 "name": matrix.columns,
                 "pon_mean": matrix.mean(axis=0).to_numpy(dtype=float),
-                "pon_sd": matrix.std(axis=0, ddof=1)
-                .replace(0.0, np.nan)
-                .fillna(0.05)
-                .to_numpy(dtype=float),
+                "pon_sd": pon_sd.to_numpy(dtype=float),
             }
         )
 
@@ -225,6 +224,7 @@ class PanelOfNormalsBuilder:
             .rename(columns={"mean": "mean_depth", "std": "sd_depth", "count": "n"})
         )
         stats["sd_depth"] = stats["sd_depth"].replace(0.0, np.nan).fillna(0.05)
+        stats["sd_depth"] = stats["sd_depth"].clip(lower=0.05)
         return stats
 
     def _infer_modality(self, cvs: list[float]) -> str:

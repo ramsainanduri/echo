@@ -56,7 +56,7 @@ For a release pull request:
 ```bash
 echo-bpsd build-pon \
   --manifest pon_samples.tsv \
-  --bed .design/panpgx.TE-97619858.grch38.refseq_mane.whole_genes_snps.annot.v2.bed \
+  --bed .design/targets.bed \
   --tiling tiling.tsv \
   --output pon.pkl \
   --stats-output pon.stats.json
@@ -186,11 +186,14 @@ More details are in [docs/algorithm.md](docs/algorithm.md) and
 
 ## Runnable Example
 
-Synthetic, non-sensitive inputs are provided in [examples/](examples/):
+Synthetic, non-sensitive inputs are provided in [examples/](examples/). The
+example target BED is a compact subset of the real annotated design: a few
+background regions plus the full CYP2D6/CYP2D7 block. The sample depth file
+models a CYP2D6/2D7 hybrid-like shift with reduced downstream CYP2D7 depth.
 
 ```text
 examples/
-  target_design.bed
+  targets.bed
   tiling.tsv
   pon_samples.tsv
   depths/
@@ -204,10 +207,11 @@ Run the example end to end:
 ```bash
 echo-bpsd build-pon \
   --manifest examples/pon_samples.tsv \
-  --bed examples/target_design.bed \
+  --bed examples/targets.bed \
   --tiling examples/tiling.tsv \
   --output examples/pon.pkl \
-  --stats-output examples/pon.stats.json
+  --stats-output examples/pon.stats.json \
+  --max-pca-components 0
 
 echo-bpsd call-cnv \
   --depth examples/depths/sample.depth.bed \
@@ -219,3 +223,8 @@ echo-bpsd call-cnv \
 
 The generated `.pkl`, `.json`, `.tsv`, and `.png` files are analysis outputs
 and can be deleted or regenerated at any time.
+
+> [!NOTE]
+> The runnable example uses only two normal samples, so PCA correction is
+> disabled with `--max-pca-components 0`. Real PON builds should use a larger
+> technically matched normal cohort before enabling PCA correction.
