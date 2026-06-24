@@ -224,5 +224,7 @@ PROMPT.md
 examples/*.pkl
 examples/*.json
 examples/*.png
+examples/*.svg
+examples/*.pdf
 examples/*.cnv.tsv
 examples/*.genes.tsv
