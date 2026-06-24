@@ -23,7 +23,7 @@ class CNVCaller:
         self.pon = pon
         self.algorithm = algorithm or BPSDAlgorithm()
 
-    def call(self, depth_path: str | Path) -> dict[str, Any]:
+    def call(self, depth_path: str | Path, sample: str | None = None) -> dict[str, Any]:
         """Run ECHO on a single depth file.
 
         Parameters
@@ -37,7 +37,7 @@ class CNVCaller:
             JSON-serializable report.
         """
 
-        report, _, _, _ = self._call_with_intermediates(depth_path)
+        report, _, _, _ = self._call_with_intermediates(depth_path, sample)
         return report
 
     def write_outputs(
@@ -45,14 +45,20 @@ class CNVCaller:
         depth_path: str | Path,
         report_path: str | Path,
         cnv_output_path: str | Path | None = None,
+        gene_output_path: str | Path | None = None,
         plot_path: str | Path | None = None,
+        sample: str | None = None,
     ) -> None:
-        """Call one sample and write requested report, CNV, and plot outputs."""
+        """Call one sample and write requested report, CNV, gene, and plot outputs."""
 
-        report, region_calls, signal, breakpoints = self._call_with_intermediates(depth_path)
+        report, region_calls, signal, breakpoints = self._call_with_intermediates(
+            depth_path, sample
+        )
         self.write_report(report, report_path)
         if cnv_output_path is not None:
             self.write_cnv_calls(report, cnv_output_path)
+        if gene_output_path is not None:
+            self.write_gene_copy_numbers(report, gene_output_path)
         if plot_path is not None:
             from echo.plotting import plot_cnv_call
 
@@ -80,15 +86,93 @@ class CNVCaller:
 
         rows: list[dict[str, Any]] = []
         for gene, call in report["gene_copy_number"].items():
-            rows.append({"level": "gene", "gene": gene, **call})
+            rows.append(
+                {
+                    "call_type": "gene",
+                    "gene": gene,
+                    "CN(human)": self._format_human_copy_number(
+                        float(call["copy_number"]), int(call["integer_copy_number"])
+                    ),
+                    "copy_number": call["copy_number"],
+                    "integer_copy_number": call["integer_copy_number"],
+                    "hybrid": "no",
+                    "segments": call["segments"],
+                }
+            )
         for row in report["exon_copy_number"]:
-            rows.append({"level": "exon", **row})
-        for row in report["breakpoints"]:
-            rows.append({"level": "breakpoint", **row})
-        pd.DataFrame(rows).to_csv(output_path, sep="\t", index=False)
+            rows.append(
+                {
+                    "call_type": "exon",
+                    "gene": row["gene"],
+                    "CN(human)": self._format_human_copy_number(
+                        float(row["copy_number"]), int(row["integer_copy_number"])
+                    ),
+                    "copy_number": row["copy_number"],
+                    "integer_copy_number": row["integer_copy_number"],
+                    "hybrid": "no",
+                    "feature": row["exon"],
+                    "chrom": row["chrom"],
+                    "start": row["start"],
+                    "end": row["end"],
+                    "z_score": row["z_score"],
+                }
+            )
+        for row in report["hybrid_calls"]:
+            rows.append(
+                {
+                    "call_type": "hybrid",
+                    "gene": "CYP2D6/CYP2D7",
+                    "CN(human)": "hybrid candidate",
+                    "hybrid": "yes",
+                    "feature": row["feature"],
+                    "chrom": row["chrom"],
+                    "breakpoint_coordinate": row["coordinate"],
+                    "log_bayes_factor": row["log_bayes_factor"],
+                    "left_pds_ratio": row["left_pds_ratio"],
+                    "right_pds_ratio": row["right_pds_ratio"],
+                }
+            )
+        columns = [
+            "call_type",
+            "gene",
+            "CN(human)",
+            "copy_number",
+            "integer_copy_number",
+            "hybrid",
+            "feature",
+            "chrom",
+            "start",
+            "end",
+            "z_score",
+            "breakpoint_coordinate",
+            "log_bayes_factor",
+            "left_pds_ratio",
+            "right_pds_ratio",
+            "segments",
+        ]
+        pd.DataFrame(rows).reindex(columns=columns).to_csv(output_path, sep="\t", index=False)
+
+    def write_gene_copy_numbers(self, report: dict[str, Any], output_path: str | Path) -> None:
+        """Write a compact gene-level copy-number table."""
+
+        rows: list[dict[str, Any]] = []
+        for gene, call in report["gene_copy_number"].items():
+            copy_number = float(call["copy_number"])
+            integer_copy_number = int(call["integer_copy_number"])
+            rows.append(
+                {
+                    "gene": gene,
+                    "CN": integer_copy_number,
+                    "CN(human)": self._format_human_copy_number(copy_number, integer_copy_number),
+                    "copy_number": copy_number,
+                }
+            )
+        pd.DataFrame(rows).reindex(columns=["gene", "CN", "CN(human)", "copy_number"]).to_csv(
+            output_path, sep="\t", index=False
+        )
 
     def _call_with_intermediates(
-        self, depth_path: str | Path
+        self, depth_path: str | Path, sample: str | None = None
     ) -> tuple[dict[str, Any], pd.DataFrame, pd.DataFrame, list[ChangePoint]]:
         profile = DepthProfile.from_path(depth_path)
         bed = self.pon.bed
@@ -101,23 +185,27 @@ class CNVCaller:
         pds = profile.pds_signal(bed.pds_regions, bed.cyp_regions)
         pds = normalize_pds_signal(pds, region_means, bed.regions, self.pon.tiling_factors)
         signal, breakpoints = self.algorithm.deconvolve(pds, self.pon.pds_stats)
+        breakpoint_rows = [
+            {
+                "chrom": str(signal.iloc[min(cp.right_index, len(signal) - 1)]["chrom"])
+                if not signal.empty
+                else None,
+                **asdict(cp),
+            }
+            for cp in breakpoints
+        ]
+        hybrid_calls = self._hybrid_calls(breakpoint_rows)
+        sample_id = sample or Path(depth_path).stem
         report = {
-            "sample": Path(depth_path).stem,
+            "sample": sample_id,
             "pon_version": self.pon.version,
             "sequencing_modality": self.pon.modality,
             "pds_mode": self.pon.pds_mode,
             "tiling_factors": self.pon.tiling_factors,
             "gene_copy_number": gene_calls,
             "exon_copy_number": exon_calls,
-            "breakpoints": [
-                {
-                    "chrom": str(signal.iloc[min(cp.right_index, len(signal) - 1)]["chrom"])
-                    if not signal.empty
-                    else None,
-                    **asdict(cp),
-                }
-                for cp in breakpoints
-            ],
+            "breakpoints": breakpoint_rows,
+            "hybrid_calls": hybrid_calls,
             "quality": {
                 "regions_evaluated": int(len(region_calls)),
                 "pds_points_evaluated": int(len(signal)),
@@ -185,8 +273,38 @@ class CNVCaller:
             }
         return calls
 
+    def _hybrid_calls(self, breakpoints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        calls: list[dict[str, Any]] = []
+        for row in breakpoints:
+            coordinate = row.get("coordinate")
+            if coordinate is None:
+                continue
+            region = self._region_at_coordinate(int(coordinate))
+            calls.append(
+                {
+                    "event": "CYP2D6/CYP2D7 hybrid candidate",
+                    "chrom": row.get("chrom"),
+                    "coordinate": coordinate,
+                    "feature": region.name if region is not None else None,
+                    "log_bayes_factor": row.get("log_bayes_factor"),
+                    "left_pds_ratio": row.get("left_mean"),
+                    "right_pds_ratio": row.get("right_mean"),
+                }
+            )
+        return calls
+
+    def _region_at_coordinate(self, coordinate: int) -> Any | None:
+        for region in self.pon.bed.cyp_regions:
+            if region.start <= coordinate < region.end:
+                return region
+        return None
+
     @staticmethod
-    def _write_tsv(report: dict[str, Any], output_path: Path) -> None:
+    def _format_human_copy_number(copy_number: float, integer_copy_number: int) -> str:
+        suffix = "copy" if integer_copy_number == 1 else "copies"
+        return f"{integer_copy_number} {suffix} (estimated {copy_number:.2f})"
+
+    def _write_tsv(self, report: dict[str, Any], output_path: Path) -> None:
         rows: list[dict[str, Any]] = []
         for row in report["exon_copy_number"]:
             rows.append({"record_type": "exon", **row})

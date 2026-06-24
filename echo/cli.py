@@ -52,11 +52,27 @@ def build_parser() -> argparse.ArgumentParser:
     call = subparsers.add_parser("call-cnv", help="Call one sample against a PON.")
     call.add_argument("--depth", required=True, type=Path, help="Sample depth TSV.")
     call.add_argument("--pon", required=True, type=Path, help="Serialized PON model.")
-    call.add_argument("--output", required=True, type=Path, help="Output JSON or TSV report.")
+    call.add_argument(
+        "--sample",
+        help=(
+            "Sample identifier used in reports, plot titles, and default output filenames. "
+            "Defaults to the depth-file stem."
+        ),
+    )
+    call.add_argument(
+        "--output",
+        type=Path,
+        help="Output JSON or TSV report. Defaults to <sample>.echo.json.",
+    )
     call.add_argument(
         "--cnv-output",
         type=Path,
         help="Optional dedicated TSV containing gene, exon, and breakpoint calls.",
+    )
+    call.add_argument(
+        "--gene-output",
+        type=Path,
+        help="Optional compact TSV containing one gene-level copy-number row per gene.",
     )
     call.add_argument(
         "--plot",
@@ -103,15 +119,21 @@ def run_call_cnv(args: argparse.Namespace) -> None:
 
     pon = PONModel.load(args.pon)
     caller = CNVCaller(pon)
+    sample = args.sample or args.depth.stem
+    report_path = args.output or Path(f"{sample}.echo.json")
     caller.write_outputs(
         args.depth,
-        report_path=args.output,
+        report_path=report_path,
         cnv_output_path=args.cnv_output,
+        gene_output_path=args.gene_output,
         plot_path=args.plot,
+        sample=sample,
     )
-    print(f"Wrote ECHO report to {args.output}")
+    print(f"Wrote ECHO report to {report_path}")
     if args.cnv_output is not None:
         print(f"Wrote CNV calls to {args.cnv_output}")
+    if args.gene_output is not None:
+        print(f"Wrote gene copy numbers to {args.gene_output}")
     if args.plot is not None:
         print(f"Wrote CNV plot to {args.plot}")
 

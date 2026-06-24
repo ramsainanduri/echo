@@ -219,3 +219,10 @@ __marimo__/
 
 PROMPT.md
 .design/
+
+# Example outputs
+examples/*.pkl
+examples/*.json
+examples/*.png
+examples/*.cnv.tsv
+examples/*.genes.tsv

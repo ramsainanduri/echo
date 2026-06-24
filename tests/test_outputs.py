@@ -17,6 +17,8 @@ def test_cnv_diagnostic_plot_is_written(tmp_path: Path) -> None:
             {
                 "chrom": "chr22",
                 "gene": "CYP2D6",
+                "feature": "ex9",
+                "exon": "ex9",
                 "start": 42126573,
                 "end": 42126752,
                 "copy_number": 2.0,
@@ -25,6 +27,8 @@ def test_cnv_diagnostic_plot_is_written(tmp_path: Path) -> None:
             {
                 "chrom": "chr22",
                 "gene": "CYP2D7",
+                "feature": "ex6",
+                "exon": "ex6",
                 "start": 42140203,
                 "end": 42140456,
                 "copy_number": 1.0,
@@ -90,3 +94,89 @@ def test_pon_stats_output_contains_build_qc(tmp_path: Path) -> None:
     stats = pd.read_csv(output, sep="\t")
     assert stats.loc[0, "sample"] == "HG001"
     assert stats.loc[0, "background_cv"] == 0.12
+
+
+def test_cnv_calls_output_contains_human_cn_and_hybrid_rows(tmp_path: Path) -> None:
+    model = PONModel(
+        version="0.1.0",
+        bed_regions=[],
+        region_stats=pd.DataFrame(),
+        pds_stats=pd.DataFrame(),
+        modality="wgs",
+        pca_components=np.empty((0, 0)),
+        region_order=[],
+        pds_mode="dense_cyp_target_fallback",
+        tiling_factors={},
+        sample_stats=pd.DataFrame(),
+    )
+    from echo.caller import CNVCaller
+
+    caller = CNVCaller(model)
+    output = tmp_path / "sample.cnv.tsv"
+    report = {
+        "gene_copy_number": {
+            "CYP2D6": {"copy_number": 1.98, "integer_copy_number": 2, "segments": 10}
+        },
+        "exon_copy_number": [
+            {
+                "gene": "CYP2D7",
+                "exon": "ex6",
+                "chrom": "chr22",
+                "start": 42141533,
+                "end": 42141675,
+                "copy_number": 1.01,
+                "integer_copy_number": 1,
+                "z_score": -5.1,
+            }
+        ],
+        "hybrid_calls": [
+            {
+                "feature": "CYP2D7_NR_002570.6_in6",
+                "chrom": "chr22",
+                "coordinate": 42141339,
+                "log_bayes_factor": 120.0,
+                "left_pds_ratio": 1.0,
+                "right_pds_ratio": 0.5,
+            }
+        ],
+    }
+
+    caller.write_cnv_calls(report, output)
+
+    calls = pd.read_csv(output, sep="\t")
+    assert list(calls.columns[:3]) == ["call_type", "gene", "CN(human)"]
+    assert "2 copies" in str(calls.loc[0, "CN(human)"])
+    assert "hybrid" in set(calls["call_type"])
+    assert "yes" in set(calls["hybrid"])
+
+
+def test_gene_copy_number_output_is_compact(tmp_path: Path) -> None:
+    model = PONModel(
+        version="0.1.0",
+        bed_regions=[],
+        region_stats=pd.DataFrame(),
+        pds_stats=pd.DataFrame(),
+        modality="wgs",
+        pca_components=np.empty((0, 0)),
+        region_order=[],
+        pds_mode="dense_cyp_target_fallback",
+        tiling_factors={},
+        sample_stats=pd.DataFrame(),
+    )
+    from echo.caller import CNVCaller
+
+    caller = CNVCaller(model)
+    output = tmp_path / "sample.genes.tsv"
+    report = {
+        "gene_copy_number": {
+            "CYP2D6": {"copy_number": 2.94, "integer_copy_number": 3, "segments": 12},
+            "CYP2D7": {"copy_number": 1.12, "integer_copy_number": 1, "segments": 12},
+        }
+    }
+
+    caller.write_gene_copy_numbers(report, output)
+
+    calls = pd.read_csv(output, sep="\t")
+    assert list(calls.columns) == ["gene", "CN", "CN(human)", "copy_number"]
+    assert calls.set_index("gene").loc["CYP2D6", "CN"] == 3
+    assert calls.set_index("gene").loc["CYP2D7", "CN"] == 1

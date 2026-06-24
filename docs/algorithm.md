@@ -33,6 +33,9 @@ baseline is then estimated from 1X adjusted targets.
 
 ## PON Construction
 
+PON means panel of normals: a group of technically matched normal samples used
+to estimate expected depth and variance across target intervals.
+
 `build-pon` creates a panel-of-normals model:
 
 1. Read normal samples from a manifest with `sample` and `depth_file` columns.
@@ -49,20 +52,27 @@ covered target counts, PDS point counts, and serialized region/PDS statistics.
 
 ## BPSD Calling
 
-`call-cnv` uses Bayesian Paralog Signal Deconvolution:
+`call-cnv` uses Bayesian Paralog Signal Deconvolution (BPSD). BPSD is ECHO's
+depth-only approach for decomposing copy-number signal across homologous CYP2D
+paralogs.
 
 1. Normalize the test sample using the same target design and tiling map stored
    in the PON.
 2. Estimate absolute copy number as `2 * sample_ratio / pon_ratio` for CYP
    regions.
 3. Summarize calls at gene and exon levels.
-4. Extract PDS depth signal from explicit PDS sites when available. If the
+4. Extract PDS depth signal. PDS means paralog-differentiating site: a position
+   or target-base signal that helps separate homologous CYP2D paralogs. If the
    design does not contain explicit single-base PDS rows, ECHO falls back to
    dense CYP target-base depth signal.
 5. Compare sample PDS depth to PON PDS depth to produce a PDS ratio and z-score.
 6. Detect ratio shifts along genomic coordinate order.
 
 ## Bayesian Change-Point Detection
+
+Change-point detection (CPD) identifies abrupt shifts in the ordered PDS ratio
+signal. These shifts are reported as hybrid breakpoint candidates when they
+have sufficient Bayesian support.
 
 For an ordered PDS ratio signal `x`, ECHO compares:
 
@@ -78,7 +88,7 @@ mu | sigma^2 ~ Normal(mu0, sigma^2 / kappa0)
 ```
 
 The detector computes the log marginal likelihood for each segment and reports
-the split with the strongest log Bayes factor:
+the split with the strongest log Bayes factor (BF):
 
 ```text
 log BF = log p(left) + log p(right) - log p(full)
@@ -86,3 +96,6 @@ log BF = log p(left) + log p(right) - log p(full)
 
 Accepted splits are recursively refined, subject to minimum segment size and
 log Bayes-factor thresholds.
+
+In ECHO plots and call outputs, `BP` labels denote breakpoint candidates and
+`BF` labels denote the Bayes-factor support for each candidate.
