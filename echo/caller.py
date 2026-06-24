@@ -90,9 +90,6 @@ class CNVCaller:
                 {
                     "call_type": "gene",
                     "gene": gene,
-                    "CN(human)": self._format_human_copy_number(
-                        float(call["copy_number"]), int(call["integer_copy_number"])
-                    ),
                     "copy_number": call["copy_number"],
                     "integer_copy_number": call["integer_copy_number"],
                     "hybrid": "no",
@@ -104,9 +101,6 @@ class CNVCaller:
                 {
                     "call_type": "exon",
                     "gene": row["gene"],
-                    "CN(human)": self._format_human_copy_number(
-                        float(row["copy_number"]), int(row["integer_copy_number"])
-                    ),
                     "copy_number": row["copy_number"],
                     "integer_copy_number": row["integer_copy_number"],
                     "hybrid": "no",
@@ -122,7 +116,6 @@ class CNVCaller:
                 {
                     "call_type": "hybrid",
                     "gene": "CYP2D6/CYP2D7",
-                    "CN(human)": "hybrid candidate",
                     "hybrid": "yes",
                     "feature": row["feature"],
                     "chrom": row["chrom"],
@@ -135,7 +128,6 @@ class CNVCaller:
         columns = [
             "call_type",
             "gene",
-            "CN(human)",
             "copy_number",
             "integer_copy_number",
             "hybrid",
@@ -163,11 +155,10 @@ class CNVCaller:
                 {
                     "gene": gene,
                     "CN": integer_copy_number,
-                    "CN(human)": self._format_human_copy_number(copy_number, integer_copy_number),
                     "copy_number": copy_number,
                 }
             )
-        pd.DataFrame(rows).reindex(columns=["gene", "CN", "CN(human)", "copy_number"]).to_csv(
+        pd.DataFrame(rows).reindex(columns=["gene", "CN", "copy_number"]).to_csv(
             output_path, sep="\t", index=False
         )
 
@@ -298,11 +289,6 @@ class CNVCaller:
             if region.start <= coordinate < region.end:
                 return region
         return None
-
-    @staticmethod
-    def _format_human_copy_number(copy_number: float, integer_copy_number: int) -> str:
-        suffix = "copy" if integer_copy_number == 1 else "copies"
-        return f"{integer_copy_number} {suffix} (estimated {copy_number:.2f})"
 
     def _write_tsv(self, report: dict[str, Any], output_path: Path) -> None:
         rows: list[dict[str, Any]] = []

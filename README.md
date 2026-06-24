@@ -132,7 +132,7 @@ normal_002	depths/normal_002.depth.tsv
 | `--sample` | No | Text sample ID | Sample identifier used in the JSON report, plot title, and default output prefix. Defaults to the depth-file stem. |
 | `--output` | No | `.json` or `.tsv` path | Main ECHO report. JSON is recommended for complete structured output; TSV is supported for simple tabular export. Defaults to `<sample>.echo.json`. |
 | `--cnv-output` | No | TSV path | Dedicated CNV calls table with gene, exon, and breakpoint rows. |
-| `--gene-output` | No | TSV path | Compact gene-level copy-number table with columns `gene`, `CN`, `CN(human)`, and `copy_number`. |
+| `--gene-output` | No | TSV path | Compact gene-level copy-number table with columns `gene`, `CN`, and `copy_number`. |
 | `--plot` | No | `.png`, `.pdf`, or `.svg` path | Diagnostic CNV plot with absolute copy number, PON z-scores, PDS ratio signal, rolling median, and breakpoint annotations. |
 
 ## Modes

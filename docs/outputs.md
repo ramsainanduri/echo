@@ -28,17 +28,17 @@ output path ends in `.tsv`, ECHO writes the compact sample-level stats table.
 - quality metrics
 
 `call-cnv --cnv-output sample.cnv.tsv` writes a flat calls table. The first
-columns are `call_type`, `gene`, and `CN(human)`. Hybrid breakpoint candidates
-are emitted as `call_type=hybrid` rows with breakpoint coordinates and
-Bayes-factor support.
+columns are `call_type`, `gene`, `copy_number`, and `integer_copy_number`.
+Hybrid breakpoint candidates are emitted as `call_type=hybrid` rows with
+breakpoint coordinates and Bayes-factor support.
 
 `call-cnv --gene-output sample.genes.tsv` writes the compact gene-level copy
 number table:
 
 ```tsv
-gene	CN	CN(human)	copy_number
-CYP2D6	3	3 copies (estimated 2.94)	2.94
-CYP2D7	1	1 copy (estimated 1.12)	1.12
+gene	CN	copy_number
+CYP2D6	3	2.94
+CYP2D7	1	1.12
 ```
 
 `call-cnv --plot sample.cnv.png` writes a diagnostic figure with four panels:

@@ -144,8 +144,13 @@ def test_cnv_calls_output_contains_human_cn_and_hybrid_rows(tmp_path: Path) -> N
     caller.write_cnv_calls(report, output)
 
     calls = pd.read_csv(output, sep="\t")
-    assert list(calls.columns[:3]) == ["call_type", "gene", "CN(human)"]
-    assert "2 copies" in str(calls.loc[0, "CN(human)"])
+    assert list(calls.columns[:4]) == [
+        "call_type",
+        "gene",
+        "copy_number",
+        "integer_copy_number",
+    ]
+    assert "CN(human)" not in calls.columns
     assert "hybrid" in set(calls["call_type"])
     assert "yes" in set(calls["hybrid"])
 
@@ -177,6 +182,6 @@ def test_gene_copy_number_output_is_compact(tmp_path: Path) -> None:
     caller.write_gene_copy_numbers(report, output)
 
     calls = pd.read_csv(output, sep="\t")
-    assert list(calls.columns) == ["gene", "CN", "CN(human)", "copy_number"]
+    assert list(calls.columns) == ["gene", "CN", "copy_number"]
     assert calls.set_index("gene").loc["CYP2D6", "CN"] == 3
     assert calls.set_index("gene").loc["CYP2D7", "CN"] == 1
