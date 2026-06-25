@@ -1,12 +1,15 @@
 # ECHO
 
 ECHO (Estimating Copy-number of Homologous Origins) is a pip-installable
-Python package for per-base-depth copy-number and CYP2D hybrid breakpoint
+Python package for per-base-depth CYP2D copy-number and hybrid breakpoint
 calling using Bayesian Paralog Signal Deconvolution (BPSD).
 
 ECHO uses an annotated target design BED to map target intervals to genes,
 exons, introns, and CYP2D locus features. Depth profiles are provided
 separately as per-base files from tools such as `samtools depth` or mosdepth.
+The PON is built across every target in the BED. Calling is CYP2D-focused by
+default, with optional copy-number summaries for additional standard genes
+requested with `--genes`.
 
 ## Install
 
@@ -64,10 +67,8 @@ echo-bpsd call-cnv \
   --depth examples/depths/sample.depth.bed \
   --pon examples/pon.pkl \
   --sample sample \
-  --output examples/sample.echo.json \
-  --cnv-output examples/sample.cnv.tsv \
-  --gene-output examples/sample.genes.tsv \
-  --plot examples/sample.cnv.png
+  --output-dir examples/ \
+  --plot
 ```
 
 Depth input may be samtools-style (`chrom pos depth`) or mosdepth-style
@@ -106,6 +107,7 @@ normal_002	depths/normal_002.depth.tsv
 | CNV | Copy-number variation: deletion, duplication, or other dosage change. |
 | PON | Panel of normals: technically matched normal samples used to model expected depth and variance. |
 | PDS | Paralog-differentiating site: a position or target-base signal that helps distinguish homologous CYP2D paralogs. |
+| DWBN | Density-Weighted Baseline Normalization: KDE-weighted baseline estimation for one-copy background targets. |
 | BPSD | Bayesian Paralog Signal Deconvolution: ECHO's depth-only method for resolving paralog copy-number and hybrid structure. |
 | CPD | Change-point detection: statistical detection of abrupt shifts in the ordered PDS ratio signal. |
 | BF | Bayes factor: support for a two-segment breakpoint model over a one-segment model. |
@@ -129,22 +131,23 @@ normal_002	depths/normal_002.depth.tsv
 | --- | --- | --- | --- |
 | `--depth` | Yes | Depth TSV/BED path | Per-base depth profile for the sample being called. Supports `chrom pos depth` and `chrom start end depth`. |
 | `--pon` | Yes | `.pkl` path | Serialized PON model produced by `build-pon`. Contains region statistics, PDS statistics, tiling factors, and modality metadata. |
-| `--sample` | No | Text sample ID | Sample identifier used in the JSON report, plot title, and default output prefix. Defaults to the depth-file stem. |
-| `--output` | No | `.json` or `.tsv` path | Main ECHO report. JSON is recommended for complete structured output; TSV is supported for simple tabular export. Defaults to `<sample>.echo.json`. |
-| `--cnv-output` | No | TSV path | Dedicated CNV calls table with gene, exon, and breakpoint rows. |
-| `--gene-output` | No | TSV path | Compact gene-level copy-number table with columns `gene`, `CN`, and `copy_number`. |
-| `--plot` | No | `.png`, `.pdf`, or `.svg` path | Diagnostic CNV plot with absolute copy number, PON z-scores, PDS ratio signal, rolling median, and breakpoint annotations. |
+| `--sample` | Yes | Text sample ID | Sample identifier used as the output filename prefix. |
+| `--output-dir` | Yes | Directory path | Directory where ECHO writes the fixed output file set. Existing files with the same fixed names are overwritten. |
+| `--genes` | No | Comma-separated gene symbols | Additional standard genes to call from the annotated BED, for example `TPMT,CYP2C19`. |
+| `--plot` | No | Flag | Write CYP2D and standard-gene plots. When omitted, existing fixed plot files for the sample are removed. |
+| `--plot-format` | No | `png`, `svg`, or `pdf` | Plot output format when `--plot` is used. Default: `png`. |
 
 ## Modes
 
 ### `build-pon`
 
 Builds a serialized panel-of-normals model from normal samples. ECHO reads the
-target design BED, summarizes each normal depth file over the design intervals,
-divides genes by their configured tiling factor, estimates the 1X baseline from
-targets with 1X tiling, and stores PON region and PDS statistics. The optional
-`--stats-output` writes build QC metrics, including sample-level background
-depth, background coefficient of variation, covered regions, PDS points, and
+target design BED, summarizes each normal depth file over every design
+interval, applies tiling correction, estimates each sample baseline with DWBN,
+and stores PON statistics for all targets. CYP2D PDS statistics are stored
+alongside the region statistics for hybrid breakpoint calling. The optional
+`--stats-output` writes build QC metrics, including DWBN baseline values,
+background coefficient of variation, covered regions, PDS points, and
 serialized region/PDS statistics.
 
 > [!IMPORTANT]
@@ -155,25 +158,38 @@ serialized region/PDS statistics.
 ### `call-cnv`
 
 Calls a single sample against a PON. ECHO normalizes sample depth using the
-same tiling factors stored in the PON, estimates absolute copy number for CYP2D
-regions, summarizes exon and gene copy number, and applies BPSD to detect PDS
-ratio shifts consistent with hybrid breakpoints.
+same target BED, tiling factors, and DWBN logic used during PON construction.
+The primary call set is the CYP2D locus. Optional genes passed with `--genes`
+are selected from the parsed BED and receive copy-number and z-score summaries
+without CYP2D-specific PDS breakpoint analysis.
 
 Outputs:
 
-- `--output`: full JSON report, or TSV when the path ends in `.tsv`
-- `--cnv-output`: dedicated TSV with gene, exon, and breakpoint calls
-- `--gene-output`: compact gene-level copy-number TSV, for example
-  `CYP2D6 3` and `CYP2D7 1`
-- `--plot`: CNV diagnostic plot with a gene/exon model,
-  absolute copy number, PON z-scores, PDS ratios, rolling median, and Bayesian
-  breakpoint annotations
+- `<sample>.echo.json`: full structured report
+- `<sample>.cnv.tsv`: detailed gene, exon, and breakpoint calls
+- `<sample>.genes.tsv`: compact gene-level copy-number table
+- `<sample>.cyp2d6_cyp2d7.cnv.<format>`: CYP2D diagnostic plot when `--plot` is used
+- `<sample>.<gene>.cnv.<format>`: one three-panel plot per requested standard gene when `--plot` is used
 
 PON z-score is `(sample depth - PON mean) / PON SD`; negative values indicate
 lower-than-expected depth and positive values indicate higher-than-expected
 depth. Red vertical lines in the PDS panel are Bayesian change points. `BP`
 means breakpoint candidate, and `BF` is the Bayes factor; larger BF values
 indicate stronger support for a depth-ratio shift.
+
+For standard genes present in the target BED and PON, pass a comma-separated
+gene list:
+
+```bash
+echo-bpsd call-cnv \
+  --depth sample.depth.bed \
+  --pon pon.pkl \
+  --sample sample \
+  --output-dir results/ \
+  --genes "TPMT,CYP2C19" \
+  --plot \
+  --plot-format svg
+```
 
 > [!TIP]
 > Interpret CNV and breakpoint calls together with the diagnostic plot and QC
@@ -182,16 +198,18 @@ indicate stronger support for a depth-ratio shift.
 
 ## Algorithm
 
-BPSD operates on per-base depth, not BAM alignments. The workflow is:
+ECHO operates on per-base depth, not BAM alignments. The high-level workflow is:
 
 1. Parse the annotated BED to assign each target interval to a gene and feature.
-2. Extract PDS signal from explicit single-base CYP differentiating sites when
+2. Build or load PON statistics for every target interval in the BED.
+3. Apply tiling correction and DWBN sample normalization.
+4. Estimate target copy number as `2 * sample_normalized_depth / PON_mean`.
+5. Summarize target calls to exon and gene copy number.
+6. Extract PDS signal from explicit single-base CYP differentiating sites when
    present; otherwise use dense CYP target-base depth as a conservative depth
    signal.
-3. Correct target depths by gene tiling factor, defaulting missing genes to 1X.
-4. Normalize depths to the aggregate 1X baseline.
-5. Compare sample PDS ratios to PON PDS statistics.
-6. Detect structural shifts with Bayesian change-point detection. Each
+7. Compare sample PDS ratios to PON PDS statistics.
+8. Detect structural shifts with Bayesian change-point detection. Each
    candidate split compares a one-segment model to a two-segment model using a
    Normal-Inverse-Gamma marginal likelihood; accepted splits are reported as
    breakpoint candidates with log Bayes factors.
@@ -241,10 +259,8 @@ echo-bpsd call-cnv \
   --depth examples/depths/sample.depth.bed \
   --pon examples/pon.pkl \
   --sample sample \
-  --output examples/sample.echo.json \
-  --cnv-output examples/sample.cnv.tsv \
-  --gene-output examples/sample.genes.tsv \
-  --plot examples/sample.cnv.png
+  --output-dir examples/ \
+  --plot
 ```
 
 The `.pkl`, `.json`, `.tsv`, and `.png` files are analysis outputs and can be

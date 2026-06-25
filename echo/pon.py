@@ -15,6 +15,7 @@ from echo.manifest import DepthSample
 from echo.regions import AnnotatedBed, BedRegion
 from echo.tiling import (
     add_region_tiling,
+    dwbn_baseline_pool,
     load_tiling_factors,
     normalize_pds_signal,
     normalize_region_means,
@@ -116,8 +117,9 @@ class PanelOfNormalsBuilder:
         """Build a PON model.
 
         Depths are divided by gene-specific tiling factors before comparison
-        with the aggregate one-copy target baseline. Genes absent from the
-        tiling file are treated as 1X.
+        with the DWBN one-copy target baseline. Genes absent from the tiling
+        file are treated as 1X. Region statistics are stored for every target
+        in the annotated BED.
         """
 
         if len(samples) < 2:
@@ -137,13 +139,13 @@ class PanelOfNormalsBuilder:
             background_values = adjusted_regions.loc[
                 adjusted_regions["tiling_factor"] == 1.0, "adjusted_depth"
             ].dropna()
-            if not background_values.empty:
-                mean_depth = float(background_values.mean())
-                background_cv = float(background_values.std(ddof=1) / mean_depth)
+            if background_values.empty:
+                background_values = adjusted_regions["adjusted_depth"].dropna()
+            baseline_stats, background_weights = dwbn_baseline_pool(background_values)
+            mean_depth = baseline_stats.baseline
+            background_cv = float(background_values.std(ddof=1) / mean_depth)
+            if np.isfinite(background_cv):
                 background_cvs.append(background_cv)
-            else:
-                mean_depth = float("nan")
-                background_cv = float("nan")
             pds = profile.pds_signal(self.bed.pds_regions, self.bed.cyp_regions)
             pds_points = int(len(pds))
             if not pds.empty:
@@ -155,8 +157,14 @@ class PanelOfNormalsBuilder:
                 {
                     "sample": sample.sample,
                     "depth_file": str(sample.depth_file),
-                    "mean_1x_adjusted_depth": mean_depth,
+                    "dwbn_1x_baseline_depth": mean_depth,
+                    "dwbn_kde_mode_depth": baseline_stats.kde_mode,
+                    "dwbn_effective_region_count": baseline_stats.effective_region_count,
+                    "dwbn_min_weight": baseline_stats.min_weight,
+                    "dwbn_max_weight": baseline_stats.max_weight,
                     "background_cv": background_cv,
+                    "background_raw_regions": baseline_stats.raw_count,
+                    "background_weighted_regions": int(background_weights.notna().sum()),
                     "covered_regions": int(region_means["mean_depth"].notna().sum()),
                     "pds_points": pds_points,
                 }

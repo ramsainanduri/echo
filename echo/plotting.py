@@ -93,6 +93,171 @@ def plot_cnv_call(
         plt.close(fig)
 
 
+def plot_standard_gene_call(
+    region_calls: pd.DataFrame,
+    output_path: str | Path,
+    sample: str,
+    gene: str,
+) -> None:
+    """Create a standard-gene CNV diagnostic plot.
+
+    Parameters
+    ----------
+    region_calls
+        Region-level copy-number calls for one requested gene. Required
+        columns are ``feature``, ``exon``, ``start``, ``end``,
+        ``copy_number``, and ``z_score``.
+    output_path
+        PNG path to write.
+    sample
+        Sample identifier shown in the figure title.
+    gene
+        Gene symbol shown in the figure title.
+
+    Returns
+    -------
+    None
+        The plot is written to ``output_path``.
+    """
+
+    out = Path(output_path)
+    calls = _prepare_region_axis(region_calls)
+    tick_positions, tick_labels = _standard_gene_ticks(calls)
+    with plt.rc_context(
+        {
+            "font.family": "DejaVu Sans",
+            "font.size": 9,
+            "axes.titlesize": 10,
+            "axes.labelsize": 9,
+            "legend.fontsize": 8,
+            "xtick.labelsize": 8,
+            "ytick.labelsize": 8,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    ):
+        fig, axes = plt.subplots(
+            nrows=3,
+            ncols=1,
+            figsize=(10, 7),
+            sharex=True,
+            gridspec_kw={"height_ratios": [0.45, 1.05, 1.05], "hspace": 0.18},
+        )
+        fig.suptitle(
+            f"ECHO CNV profile: {sample} {gene}",
+            fontsize=14,
+            fontweight="bold",
+            y=0.985,
+        )
+        _plot_standard_gene_model(axes[0], calls, gene)
+        _plot_standard_copy_number_panel(axes[1], calls, gene)
+        z_scatter = _plot_z_score_panel(axes[2], calls)
+        colorbar = fig.colorbar(z_scatter, ax=axes[2], pad=0.01, fraction=0.04)
+        colorbar.set_label("z-score", rotation=270, labelpad=12)
+        axes[2].set_xticks(tick_positions)
+        axes[2].set_xticklabels(tick_labels, rotation=90, ha="center", va="top", fontsize=7)
+        axes[2].set_xlabel("Target interval")
+        _apply_shared_style(axes)
+        fig.align_ylabels(axes)
+        fig.savefig(out, dpi=300, bbox_inches="tight", pad_inches=0.16)
+        plt.close(fig)
+
+
+def _plot_standard_gene_model(axis: Any, calls: pd.DataFrame, gene: str) -> None:
+    """Draw target blocks for one standard gene.
+
+    Parameters
+    ----------
+    axis
+        Matplotlib axis.
+    calls
+        Prepared region calls with ``plot_x``.
+    gene
+        Gene symbol.
+
+    Returns
+    -------
+    None
+        The axis is modified in place.
+    """
+
+    color = "#0072B2"
+    axis.axhline(0.5, color="#666666", linewidth=0.8)
+    for _, row in calls.iterrows():
+        axis.add_patch(
+            Rectangle(
+                (float(row["plot_x"]) - 0.34, 0.28),
+                0.68,
+                0.44,
+                facecolor=color,
+                edgecolor="white",
+                linewidth=0.6,
+                alpha=0.9,
+            )
+        )
+    axis.text(
+        float(calls["plot_x"].median()),
+        0.92,
+        gene,
+        ha="center",
+        va="top",
+        fontsize=9,
+        fontweight="bold",
+        color=color,
+    )
+    axis.set_ylim(0, 1)
+    axis.set_yticks([])
+    axis.set_ylabel("Gene\nmodel", rotation=0, ha="right", va="center")
+    axis.set_xlim(-0.8, float(calls["plot_x"].max()) + 0.8)
+
+
+def _plot_standard_copy_number_panel(axis: Any, calls: pd.DataFrame, gene: str) -> None:
+    """Draw standard-gene copy number across target intervals.
+
+    Parameters
+    ----------
+    axis
+        Matplotlib axis.
+    calls
+        Prepared region calls with ``plot_x`` and ``copy_number``.
+    gene
+        Gene symbol used for the legend.
+
+    Returns
+    -------
+    None
+        The axis is modified in place.
+    """
+
+    color = "#0072B2"
+    axis.plot(
+        calls["plot_x"],
+        calls["copy_number"],
+        color=color,
+        linestyle="--",
+        linewidth=1.4,
+        alpha=0.75,
+        zorder=2,
+    )
+    axis.scatter(
+        calls["plot_x"],
+        calls["copy_number"],
+        s=46,
+        label=gene,
+        color=color,
+        edgecolor="white",
+        linewidth=0.6,
+        zorder=3,
+    )
+    for cn in (0, 1, 2, 3, 4):
+        axis.axhline(cn, color="#D0D0D0", linewidth=0.7, zorder=0)
+    axis.set_ylabel("Absolute CN")
+    axis.set_ylim(-0.25, max(4.25, float(calls["copy_number"].max()) + 0.45))
+    axis.set_yticks([0, 1, 2, 3, 4])
+    axis.set_title("Copy-number state by target interval", loc="left", fontweight="bold", pad=8)
+    axis.legend(loc="upper right", frameon=False)
+
+
 def _plot_gene_model(
     axis: Any, calls: pd.DataFrame, gene_spans: list[tuple[str, float, float]]
 ) -> None:
@@ -318,6 +483,29 @@ def _exon_ticks(calls: pd.DataFrame) -> tuple[list[float], list[str]]:
     labels = [
         f"{str(row.gene).replace('CYP', '')} {row.exon}" for row in grouped.itertuples(index=False)
     ]
+    return positions, labels
+
+
+def _standard_gene_ticks(calls: pd.DataFrame) -> tuple[list[float], list[str]]:
+    """Return x-axis ticks for standard-gene plots.
+
+    Parameters
+    ----------
+    calls
+        Prepared region calls with ``plot_x``, ``exon``, ``feature``, and
+        ``start`` columns.
+
+    Returns
+    -------
+    tuple[list[float], list[str]]
+        Tick positions and labels.
+    """
+
+    positions = [float(value) for value in calls["plot_x"].tolist()]
+    labels: list[str] = []
+    for index, row in enumerate(calls.itertuples(index=False), start=1):
+        exon = str(getattr(row, "exon", "") or getattr(row, "feature", ""))
+        labels.append(exon if exon and exon != "nan" else f"target{index}")
     return positions, labels
 
 

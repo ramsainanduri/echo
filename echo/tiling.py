@@ -3,13 +3,27 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+from scipy.stats import gaussian_kde
 
 from echo.regions import BedRegion
+
+
+@dataclass(frozen=True)
+class DWBNStats:
+    """Summary of density-weighted baseline normalization."""
+
+    baseline: float
+    raw_count: int
+    kde_mode: float
+    effective_region_count: float
+    min_weight: float
+    max_weight: float
 
 
 def load_tiling_factors(path: str | Path | None) -> dict[str, float]:
@@ -88,7 +102,83 @@ def add_region_tiling(region_means: pd.DataFrame, tiling_factors: dict[str, floa
     return adjusted
 
 
-def baseline_from_adjusted_regions(adjusted_regions: pd.DataFrame) -> float:
+def dwbn_baseline_from_values(values: pd.Series) -> DWBNStats:
+    """Estimate a one-copy baseline with density-weighted normalization.
+
+    Parameters
+    ----------
+    values
+        One-copy adjusted background depths.
+
+    Returns
+    -------
+    DWBNStats
+        Baseline and KDE weighting diagnostics.
+    """
+
+    stats, _ = dwbn_baseline_pool(values)
+    return stats
+
+
+def dwbn_baseline_pool(values: pd.Series) -> tuple[DWBNStats, pd.Series]:
+    """Return DWBN baseline statistics and per-region KDE trust weights.
+
+    Parameters
+    ----------
+    values
+        One-copy adjusted background depths.
+
+    Returns
+    -------
+    tuple[DWBNStats, pandas.Series]
+        Baseline diagnostics and KDE density weights indexed like the cleaned
+        input depth pool.
+    """
+
+    pool = pd.Series(values, dtype="float64").replace([np.inf, -np.inf], np.nan).dropna()
+    if pool.empty:
+        raise ValueError("No covered target regions are available for baseline normalization")
+
+    raw_count = int(pool.size)
+    values_array = pool.to_numpy(dtype=float)
+    if raw_count < 2 or np.allclose(values_array, values_array[0]):
+        weights = pd.Series(np.ones(raw_count, dtype=float), index=pool.index)
+        baseline = float(values_array[0])
+        stats = DWBNStats(
+            baseline=baseline,
+            raw_count=raw_count,
+            kde_mode=baseline,
+            effective_region_count=float(raw_count),
+            min_weight=1.0,
+            max_weight=1.0,
+        )
+        return stats, weights
+
+    kde = gaussian_kde(values_array)
+    grid = np.linspace(float(np.min(values_array)), float(np.max(values_array)), 512)
+    density = np.asarray(kde(grid), dtype=float)
+    kde_mode = float(grid[int(np.argmax(density))])
+    weight_values = np.asarray(kde(values_array), dtype=float)
+    if not np.isfinite(weight_values).all() or float(weight_values.sum()) <= 0.0:
+        weight_values = np.ones(raw_count, dtype=float)
+
+    baseline = float(np.average(values_array, weights=weight_values))
+    weight_sum = float(weight_values.sum())
+    effective_region_count = float(
+        (weight_sum * weight_sum) / np.sum(weight_values * weight_values)
+    )
+    stats = DWBNStats(
+        baseline=baseline,
+        raw_count=raw_count,
+        kde_mode=kde_mode,
+        effective_region_count=effective_region_count,
+        min_weight=float(np.min(weight_values)),
+        max_weight=float(np.max(weight_values)),
+    )
+    return stats, pd.Series(weight_values, index=pool.index)
+
+
+def dwbn_stats_from_adjusted_regions(adjusted_regions: pd.DataFrame) -> DWBNStats:
     """Estimate the one-copy baseline from adjusted target depths."""
 
     background = adjusted_regions.loc[
@@ -96,9 +186,13 @@ def baseline_from_adjusted_regions(adjusted_regions: pd.DataFrame) -> float:
     ].dropna()
     if background.empty:
         background = adjusted_regions["adjusted_depth"].dropna()
-    if background.empty:
-        raise ValueError("No covered target regions are available for baseline normalization")
-    return float(np.nanmedian(background))
+    return dwbn_baseline_from_values(background)
+
+
+def baseline_from_adjusted_regions(adjusted_regions: pd.DataFrame) -> float:
+    """Return the DWBN one-copy baseline from adjusted target depths."""
+
+    return dwbn_stats_from_adjusted_regions(adjusted_regions).baseline
 
 
 def normalize_region_means(

@@ -120,6 +120,24 @@ class AnnotatedBed:
 
         return [region for region in self.regions if not region.is_cyp2d]
 
+    def regions_for_genes(self, genes: list[str]) -> list[BedRegion]:
+        """Return regions matching requested gene symbols.
+
+        Parameters
+        ----------
+        genes
+            Gene symbols to select from the annotated BED.
+
+        Returns
+        -------
+        list[BedRegion]
+            Target regions whose parsed gene symbol matches one of the
+            requested genes.
+        """
+
+        requested = {gene.strip() for gene in genes if gene.strip()}
+        return [region for region in self.regions if region.gene in requested]
+
     @property
     def cyp_exons(self) -> list[BedRegion]:
         """Return CYP exon intervals."""

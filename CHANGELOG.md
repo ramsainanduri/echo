@@ -9,21 +9,17 @@ and this project uses semantic versioning.
 
 ### Added
 
-- Initial pip-installable ECHO package and `echo-bpsd` command-line interface.
-- Panel-of-normals construction from sample manifests and per-base depth files.
-- Tiling-aware depth normalization using configurable gene tiling factors.
-- CYP2D copy-number calling with exon-level reports and breakpoint detection.
-- Bayesian Paralog Signal Deconvolution with Bayesian change-point detection.
-- Optional CNV diagnostic plots with copy-number, z-score, and PDS-ratio panels.
-- Dedicated CNV calls TSV output and PON build statistics output.
-- Compact gene-level copy-number TSV output.
-- CNV output with hybrid candidate rows.
-- CNV diagnostic plots with gene/exon model, ordered exon axis, z-score color
-  scale, and breakpoint annotations.
-- `call-cnv --sample` for stable sample IDs, plot titles, and default output
-  filename prefixes.
-- Expanded acronym documentation.
-- Algorithm and output documentation for PON construction and CNV calling.
-- Development quality checks for formatting, linting, typing, tests, and
-  changelog enforcement.
-- Release version consistency checks in GitHub Actions.
+- Production Python package with `echo` and `echo-bpsd` command-line entry points.
+- Panel-of-normals construction from sample manifests or depth-file directories.
+- Density-Weighted Baseline Normalization (DWBN) for robust sample-level depth normalization.
+- Optional tiling-factor correction for genes with non-uniform probe density.
+- CYP2D6/CYP2D7-focused copy-number calling with exon-level, gene-level, and hybrid breakpoint outputs.
+- Bayesian Paralog Signal Deconvolution for CYP2D6/CYP2D7 hybrid detection.
+- Optional standard-gene copy-number calling through `call-cnv --genes`.
+- Standardized output layout with structured JSON reports, detailed CNV TSV files, compact gene CN TSV files, PON statistics, and diagnostic plots.
+- Publication-style CYP2D and standard-gene diagnostic plots with PNG, SVG, and PDF output support.
+- Continuous integration checks for formatting, linting, typing, tests, changelog updates, and release version consistency.
+
+### Documentation
+
+- Added usage documentation, argument tables, output schemas, and algorithm details for PON construction, DWBN normalization, CYP2D CNV calling, optional standard-gene calling, and plotting.

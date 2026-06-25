@@ -54,30 +54,24 @@ def build_parser() -> argparse.ArgumentParser:
     call.add_argument("--pon", required=True, type=Path, help="Serialized PON model.")
     call.add_argument(
         "--sample",
-        help=(
-            "Sample identifier used in reports, plot titles, and default output filenames. "
-            "Defaults to the depth-file stem."
-        ),
+        required=True,
+        help="Sample identifier used as the output filename prefix.",
     )
+    call.add_argument("--output-dir", required=True, type=Path, help="Output directory.")
     call.add_argument(
-        "--output",
-        type=Path,
-        help="Output JSON or TSV report. Defaults to <sample>.echo.json.",
-    )
-    call.add_argument(
-        "--cnv-output",
-        type=Path,
-        help="Optional dedicated TSV containing gene, exon, and breakpoint calls.",
-    )
-    call.add_argument(
-        "--gene-output",
-        type=Path,
-        help="Optional compact TSV containing one gene-level copy-number row per gene.",
+        "--genes",
+        help='Optional comma-separated standard gene list to call, for example "CYP2C19,TPMT".',
     )
     call.add_argument(
         "--plot",
-        type=Path,
-        help="Optional PNG/PDF/SVG path for a CNV, z-score, and PDS signal plot.",
+        action="store_true",
+        help="Write CYP2D and standard-gene plots.",
+    )
+    call.add_argument(
+        "--plot-format",
+        choices=("png", "svg", "pdf"),
+        default="png",
+        help="Plot output format when --plot is used. Default: png.",
     )
 
     return parser
@@ -119,23 +113,49 @@ def run_call_cnv(args: argparse.Namespace) -> None:
 
     pon = PONModel.load(args.pon)
     caller = CNVCaller(pon)
-    sample = args.sample or args.depth.stem
-    report_path = args.output or Path(f"{sample}.echo.json")
-    caller.write_outputs(
+    genes = _parse_genes(args.genes)
+    outputs = caller.write_outputs(
         args.depth,
-        report_path=report_path,
-        cnv_output_path=args.cnv_output,
-        gene_output_path=args.gene_output,
-        plot_path=args.plot,
-        sample=sample,
+        output_dir=args.output_dir,
+        sample=args.sample,
+        genes=genes,
+        plot=args.plot,
+        plot_format=args.plot_format,
     )
-    print(f"Wrote ECHO report to {report_path}")
-    if args.cnv_output is not None:
-        print(f"Wrote CNV calls to {args.cnv_output}")
-    if args.gene_output is not None:
-        print(f"Wrote gene copy numbers to {args.gene_output}")
-    if args.plot is not None:
-        print(f"Wrote CNV plot to {args.plot}")
+    print(f"Wrote ECHO report to {outputs.report}")
+    print(f"Wrote CNV calls to {outputs.cnv_calls}")
+    print(f"Wrote gene copy numbers to {outputs.gene_summary}")
+    if outputs.cyp2d_plot is not None:
+        print(f"Wrote CYP2D plot to {outputs.cyp2d_plot}")
+    for gene, path in outputs.standard_gene_plots.items():
+        print(f"Wrote {gene} plot to {path}")
+
+
+def _parse_genes(value: str | None) -> list[str]:
+    """Parse a comma-separated gene list.
+
+    Parameters
+    ----------
+    value
+        Comma-separated gene string from the command line.
+
+    Returns
+    -------
+    list[str]
+        Requested gene symbols in input order.
+    """
+
+    if value is None:
+        return []
+    genes: list[str] = []
+    seen: set[str] = set()
+    for token in value.split(","):
+        gene = token.strip()
+        if not gene or gene in seen:
+            continue
+        genes.append(gene)
+        seen.add(gene)
+    return genes
 
 
 def main(argv: list[str] | None = None) -> int:
